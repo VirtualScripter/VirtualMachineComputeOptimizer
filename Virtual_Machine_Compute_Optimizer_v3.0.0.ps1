@@ -2,10 +2,10 @@
 #
 # Powershell Source File 
 #
-# NAME: Virtual_Machine_Compute_Optimizer.ps1, v2.1.0
+# NAME: Virtual_Machine_Compute_Optimizer.ps1, v2.1.1
 #
 # AUTHOR: Mark McGill, VMware
-# Last Updated: 5/7/2020
+# Last Updated: 4/29/2020
 #
 # COMMENT: Verifies necessary Powershell versions and Modules needed in 
 #          order to utilize the Get-OptimalvCPU function. Also completes
@@ -20,85 +20,56 @@
 $defaultPath = $PSScriptRoot
 $defaultReportPath = "$defaultPath\VMCO_Report.csv"
 $powerCLIModule = "VMware.VimAutomation.Core"
+$VMCOModule = "VMCO"
 $minPSVer = 5
-$functionFile = "Get-OptimalvCPU_v2.1.0.ps1"
+#$functionFile = "Get-OptimalvCPU_v2.1.1.ps1"
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #////////////////////////////FUNCTIONS ///////////////////////////////////
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
-Function Import_Update_Module($moduleName) 
+Function Install_Update_Module($moduleName) 
 {
-    #Test to see if Module Exists
     Try
     {
-        $installedVersion = Get-InstalledModule -Name $moduleName | select -ExpandProperty Version | Measure-Object -Maximum | select -expand Maximum -ErrorAction Stop
+        $installedVersion = Get-InstalledModule -Name $moduleName -ErrorAction Stop | select -ExpandProperty Version | Measure-Object -Maximum | select -expand Maximum
         $installedVersion = "$($installedVersion.Major).$($installedVersion.Minor).$($installedVersion.Build).$($installedVersion.Revision)"
-        If ($installedVersion -eq $null) 
+        $currentVersion = Find-module -name $moduleName | select -expand Version -ErrorAction Stop
+        $currentVersion = "$($currentVersion.Major).$($currentVersion.Minor).$($currentVersion.Build).$($currentVersion.Revision)"
+        If ($currentVersion -gt $installedVersion)
         {
-            Write-Host "$moduleName is not installed. Type 'Y' to install module, or 'N' to skip: " -ForegroundColor Yellow -NoNewline
-            Do
-            {
-                $choice = Read-Host
-                Switch ($choice)
-                {
-                    "Y" {$action = "Install"}
-                    "N" {$action = "Module Not Installed"; return $action}
-                    default {Write-Host "Invalid choice. Please type 'Y' or 'N': " -ForegroundColor Yellow -NoNewline; $action = "Invalid"}
-                }
-            }
-            Until ($action -ne "Invalid")
+            Write-Host "Updating module $moduleName from $installedVersion to $currentVersion" -ForegroundColor Yellow
+            Update-Module -name $moduleName -Confirm:$false -Force -ErrorAction Stop
+            Return "SUCCESS"
         }
         Else
         {
-            $currentVersion = Find-module -name $moduleName | select -expand Version -ErrorAction Stop
-            $currentVersion = "$($currentVersion.Major).$($currentVersion.Minor).$($currentVersion.Build).$($currentVersion.Revision)"
-            If ($currentVersion -gt $installedVersion)
-            {
-                Write-Host "A newer version of $moduleName is available. Type 'Y' to update module to $currentVersion or 'N' to continue with current version $($installedVersion): " `
-                    -ForegroundColor Yellow -NoNewline
-                Do
-                {
-                    $choice = Read-Host
-                    Switch ($choice)
-                    {
-                        "Y" {$action = "Update"}
-                        "N" {$action = "$moduleName Module Update Skipped"; return $action}
-                        default {Write-Host "Invalid choice. Please type 'Y' or 'N': " -ForegroundColor Yellow -NoNewline; $action = "Invalid"}
-                    }
-                }
-                Until ($action -ne "Invalid")
-            }
-            Else 
-            {
-                return "$moduleName already installed and updated"
-            }
+            Write-Host "Current version of module $moduleName is already installed" -ForegroundColor Green
+            Return "SUCCESS"
         }
     }
     Catch
     {
-        Return "ERROR: Failed to detect $moduleName module: $($_.exception.Message)" 
-    }
-    #Install or update depending on status and choice  
-    Try
-    {
-        Switch ($action)
+        If($_.Exception.Message -Match "No match was found for the specified search criteria and module names")
         {
-            "Install"
+            Write-Host "Installing module $moduleName" -ForegroundColor Yellow
+            Try
             {
-                Import-Module -name $moduleName -Scope CurrentUser -Force -ErrorAction Stop
+                Install-Module $moduleName -Scope CurrentUser -SkipPublisherCheck -Confirm:$false -Force -ErrorAction Stop
+                Return "SUCCESS"
             }
-            "Update"
+            Catch
             {
-                Update-Module -name $moduleName -Confirm:$false -ErrorAction Stop
-            } 
+                Write-Host "Error installing module $moduleName : $_.Exception.Message" -ForegroundColor Red
+                Return "ERROR"
+            }
         }
-        Return "SUCCESS: Completed $action of $moduleName."
-    }
-    Catch
-    {
-        Return "ERROR: Could not $action $($moduleName): $($_.exception.Message)"
+        Else
+        {
+            Write-Host "Failed to find or update module $moduleName : $_.Exception.Message" -ForegroundColor Red
+            Return "ERROR"
+        }
     }
 }
 #@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
@@ -109,7 +80,7 @@ Function Set_MultivCenterMode()
     {
         Try
         {
-            Set-PowerCLIConfiguration -DefaultVIServerMode Multiple -Scope User -Confirm:$false
+            Set-PowerCLIConfiguration -DefaultVIServerMode Multiple -Scope Session -Confirm:$false
             Write-host "Changed DefaultVIServerMode to Multiple" -ForegroundColor Green
             Return "SUCCESS"
         }
@@ -155,16 +126,18 @@ If (test-path $outPutFile)
     Write-Host "*** $outPutFile already exists!  New data will be appended to this report! ***" -ForegroundColor Red
 }
 
-Write-Host "Checking for $powerCLIModule module" -ForegroundColor Yellow
-$powerCLIResult = Import_Update_Module $powerCLIModule
-If ($powerCLIResult -match ("ERROR" -or "Not Installed"))
+$powerCLIResult = Install_Update_Module $powerCLIModule
+If ($powerCLIResult -eq "ERROR")
 {
-    Write-Host "$($powerCLIResult). Script will exit." -ForegroundColor Red
+    Write-Host "Script will exit." -ForegroundColor Red
     pause; break 
 }
-Else 
+
+$VMCOResults = Install_Update_Module $VMCOModule
+If ($VMCOResults -eq "ERROR")
 {
-    Write-Host "$powerCLIResult" -ForegroundColor Green
+    Write-Host "Script will exit." -ForegroundColor Red
+    pause; break 
 }
 
 Write-Host "Type vCenter Server FQDNs Separated by a comma. `
@@ -197,7 +170,9 @@ If ($vcConnections.Count -ge 1)
 
 Try 
 {
-    Connect-VIServer $vCenters -credential $creds -ErrorAction Stop
+    Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Scope Session -Confirm:$false | Out-Null
+    Set-PowerCLIConfiguration -ParticipateInCEIP:$false -Scope Session -Confirm:$false | Out-Null
+    Connect-VIServer $vCenters -credential $creds -ErrorAction Stop | Out-Null
 }    
 Catch
 {
@@ -210,29 +185,10 @@ Finally
     Remove-Variable creds
 }
 
-#load Get-OptimalvCPU function
-$functionPath = "$defaultPath\$functionFile"
-Try
-{
-    . "$defaultPath\$functionFile"
-}
-Catch
-{
-    If(Test-Path $functionPath)
-    {
-        Write-Host "Error loading Get-OptimalvCPU function: $($_.Exception.Message)" -ForegroundColor Red
-    }
-    Else
-    {
-        Write-Host "Get-OptimalvCPU.ps1 is not in the $defaultPath directory."
-    }
-    pause; break
-}
-
 #Call function with no parameters (gets all VMs from connected vCenter Servers)
 Try
 {
-    Get-OptimalvCPU -Verbose -ErrorAction Stop | Export-Csv -Path $outPutFile -NoTypeInformation -ErrorAction Stop
+    Get-OptimalvCPU -Full -Verbose -ErrorAction Stop | Export-Csv -Path $outPutFile -NoTypeInformation -ErrorAction Stop
 }
 Catch
 {
