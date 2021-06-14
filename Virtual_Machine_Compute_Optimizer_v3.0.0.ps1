@@ -2,10 +2,10 @@
 #
 # Powershell Source File 
 #
-# NAME: Virtual_Machine_Compute_Optimizer.ps1, v2.1.1
+# NAME: Virtual_Machine_Compute_Optimizer.ps1, v3.0.0
 #
 # AUTHOR: Mark McGill, VMware
-# Last Updated: 4/29/2020
+# Last Updated: 6/14/2021
 #
 # COMMENT: Verifies necessary Powershell versions and Modules needed in 
 #          order to utilize the Get-OptimalvCPU function. Also completes
@@ -22,7 +22,6 @@ $defaultReportPath = "$defaultPath\VMCO_Report.csv"
 $powerCLIModule = "VMware.VimAutomation.Core"
 $VMCOModule = "VMCO"
 $minPSVer = 5
-#$functionFile = "Get-OptimalvCPU_v2.1.1.ps1"
 
 #+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #////////////////////////////FUNCTIONS ///////////////////////////////////
